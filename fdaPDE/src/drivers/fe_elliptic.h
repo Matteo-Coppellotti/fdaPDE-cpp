@@ -27,7 +27,7 @@ struct fe_elliptic_driver_base {
     using MatrixType = Eigen::Matrix<double, Dynamic, Dynamic>;
     using SparseMatrixType = Eigen::SparseMatrix<double>;
     using DiagonalMatrixType = Eigen::DiagonalMatrix<double, Dynamic, Dynamic>;
-    using SparseSolverType = Eigen::SparseLU<SparseMatrixType>;
+    using SparseSolverType = MumpsLU<SparseMatrixType>//Eigen::SparseLU<SparseMatrixType>;
     using DenseSolverType  = Eigen::PartialPivLU<MatrixType>;
 
     fe_elliptic_driver_base() noexcept = default;
