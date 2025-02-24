@@ -1,4 +1,4 @@
 [submodule "fdaPDE/core"]
 	path = fdaPDE/core
-	url = https://github.com/Matteo-Coppellotti/fdaPDE-core
-	branch = mumps-develop
+	url = git@github.com:Matteo-Coppellotti/fdaPDE-core.git
+	branch = stable

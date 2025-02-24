@@ -47,7 +47,7 @@ struct RegressionModel__ {
     decltype(auto) U()       const { return invoke<const DMatrix<double>&   , 6>(*this); }
     decltype(auto) V()       const { return invoke<const DMatrix<double>&   , 7>(*this); }
     decltype(auto) invXtWX() const { return invoke<const Eigen::PartialPivLU<DMatrix<double>>&, 8>(*this); }
-    decltype(auto) invA()    const { return invoke<const fdapde::SparseLU<SpMatrix<double>>&  , 9>(*this); }
+    decltype(auto) invA()    const { return invoke<const fdapde::MumpsLU<SpMatrix<double>>&  , 9>(*this); }
     decltype(auto) q()       const { return invoke<std::size_t, 10>(*this); }
     decltype(auto) n_obs()   const { return invoke<std::size_t, 11>(*this); }
     decltype(auto) norm(const DMatrix<double>& op1, const DMatrix<double>& op2) const {

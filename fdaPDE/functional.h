@@ -17,5 +17,11 @@
 #ifndef __FDAPDE_FUNCTIONAL_H__
 #define __FDAPDE_FUNCTIONAL_H__
 
+#include "models/functional/center.h"
+#include "models/functional/fpca.h"
+#include "models/functional/fpls.h"
+#include "models/functional/functional_base.h"
+#include "models/functional/power_iteration.h"
+#include "models/functional/regularized_svd.h"
 
 #endif // __FDAPDE_FUNCTIONAL_H__

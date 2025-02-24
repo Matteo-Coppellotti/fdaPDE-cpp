@@ -48,7 +48,7 @@ class STRPDE<SpaceTimeSeparable, monolithic> :
     public RegressionBase<STRPDE<SpaceTimeSeparable, monolithic>, SpaceTimeSeparable> {
    private:
     SparseBlockMatrix<double, 2, 2> A_ {};      // system matrix of non-parametric problem (2N x 2N matrix)
-    fdapde::SparseLU<SpMatrix<double>> invA_;   // factorization of matrix A
+    fdapde::MumpsLU<SpMatrix<double>> invA_;   // factorization of matrix A
     DVector<double> b_ {};                      // right hand side of problem's linear system (1 x 2N vector)
     DMatrix<double> T_;                         // T = \Psi^T*Q*\Psi + \lambda*R
     SpMatrix<double> K_;                        // P1 \kron R0
@@ -118,7 +118,7 @@ class STRPDE<SpaceTimeSeparable, monolithic> :
     double norm(const DMatrix<double>& op1, const DMatrix<double>& op2) const { return (op1 - op2).squaredNorm(); }
     // getters
     const SparseBlockMatrix<double, 2, 2>& A() const { return A_; }
-    const fdapde::SparseLU<SpMatrix<double>>& invA() const { return invA_; }
+    const fdapde::MumpsLU<SpMatrix<double>>& invA() const { return invA_; }
 };
 
 // implementation of STRPDE for parabolic space-time regularization, monolithic approach
@@ -127,7 +127,7 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
     public RegressionBase<STRPDE<SpaceTimeParabolic, monolithic>, SpaceTimeParabolic> {
    private:
     SparseBlockMatrix<double, 2, 2> A_ {};      // system matrix of non-parametric problem (2N x 2N matrix)
-    fdapde::SparseLU<SpMatrix<double>> invA_;   // factorization of matrix A
+    fdapde::MumpsLU<SpMatrix<double>> invA_;   // factorization of matrix A
     DVector<double> b_ {};                      // right hand side of problem's linear system (1 x 2N vector)
     SpMatrix<double> L_;                        // L \kron R0
    public:
@@ -192,7 +192,7 @@ class STRPDE<SpaceTimeParabolic, monolithic> :
     }
     // getters
     const SparseBlockMatrix<double, 2, 2>& A() const { return A_; }
-    const fdapde::SparseLU<SpMatrix<double>>& invA() const { return invA_; }
+    const fdapde::MumpsLU<SpMatrix<double>>& invA() const { return invA_; }
     double norm(const DMatrix<double>& op1, const DMatrix<double>& op2) const {   // euclidian norm of op1 - op2
         return (op1 - op2).squaredNorm(); // NB: to check, defined just for compiler
     }
@@ -204,7 +204,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
     public RegressionBase<STRPDE<SpaceTimeParabolic, iterative>, SpaceTimeParabolic> {
    private:
     SparseBlockMatrix<double, 2, 2> A_ {};      // system matrix of non-parametric problem (2N x 2N matrix)
-    fdapde::SparseLU<SpMatrix<double>> invA_;   // factorization of matrix A
+    fdapde::MumpsLU<SpMatrix<double>> invA_;   // factorization of matrix A
     DVector<double> b_ {};                      // right hand side of problem's linear system (1 x 2N vector)
 
     // the functional minimized by the iterative scheme
@@ -288,7 +288,7 @@ class STRPDE<SpaceTimeParabolic, iterative> :
         //    G0*g^(k,0) = \Psi^T*y^k + (\lambda_S*\lambda_T/DeltaT*R_0)*g^(k+1,0) - \Psi^T*\Psi*f^(k,0)
         SpMatrix<double> G0 =
           (lambda_D() * lambda_T() / DeltaT()) * R0() + SpMatrix<double>((lambda_D() * R1()).transpose());
-        Eigen::SparseLU<SpMatrix<double>, Eigen::COLAMDOrdering<int>> invG0;
+         mumps::MumpsLU<SpMatrix<double>> invG0;
         invG0.compute(G0);   // compute factorization of matrix G0
 
         BlockVector<double> g_old(n_temporal_locs(), n_spatial_basis());
