@@ -28,45 +28,85 @@ struct fe_elliptic_driver_base {
     using SparseMatrixType = Eigen::SparseMatrix<double>;
     using DiagonalMatrixType = Eigen::DiagonalMatrix<double, Dynamic, Dynamic>;
     using SparseSolverType = MumpsLU<SparseMatrixType>;
-    //using SparseSolverType = Eigen::SparseLU<SparseMatrixType>;
-    using DenseSolverType  = Eigen::PartialPivLU<MatrixType>;
+    // using SparseSolverType = Eigen::SparseLU<SparseMatrixType>;
+    using DenseSolverType = Eigen::PartialPivLU<MatrixType>;
 
     fe_elliptic_driver_base() noexcept = default;
     template <typename BilinearForm_, typename LinearForm_, typename GeoFrame>
     fe_elliptic_driver_base(const GeoFrame& gf, BilinearForm_&& bilinear_form, LinearForm_&& linear_form) :
-        R1_(bilinear_form.assemble()), u_(linear_form.assemble()) {
+        /*R1_(bilinear_form.assemble()), u_(linear_form.assemble())*/ {
         fdapde_static_assert(GeoFrame::Order == 1, FE_ELLIPTIC_DRIVER_REQUIRES_AN_ORDER_ONE_GEOFRAME);
         using BilinearForm = std::decay_t<BilinearForm_>;
         using LinearForm = std::decay_t<LinearForm_>;
         using FeSpace = typename BilinearForm::TrialSpace;
 
-        internals::fe_mass_assembly_loop<FeSpace> mass_assembler(bilinear_form.trial_space());
-        R0_ = mass_assembler.assemble();     // mass matrix
-        n_dofs_ = bilinear_form.n_dofs();    // number of basis functions over physical domain
+        int R0_size;
+        int R1_size;
+        int u_size;
+        int Psi_size;
+        int D_size;
 
-        // evaluate basis system on physical domain
-        switch (gf.layer_category(0)[0]) {
-        case ltype::point: {
-	  const auto& layer = geo_cast<POINT>(gf[0])->template geometry<0>();
-            // if (layer.locs_at_mesh_nodes()) {
-            //     // locations at mesh nodes
-            //     Psi_.resize(n_dofs_, n_dofs_);
-            //     Psi_.setIdentity();   // \psi_i(p_j) = 1 \iff i == j, otherwise \psi_i(p_j) = 0
-            // } else {
+        if (invR0_.getProcessRenk() == 0) {
+            R1_ = bilinear_form.assemble();   // stiffness matrix
+            u_ = linear_form.assemble();      // forcing term
+            internals::fe_mass_assembly_loop<FeSpace> mass_assembler(bilinear_form.trial_space());
+            R0_ = mass_assembler.assemble();    // mass matrix
+            n_dofs_ = bilinear_form.n_dofs();   // number of basis functions over physical domain
+
+            MPI_Bcast(&n_dofs_, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            R0_size = R0_.rows();
+            R1_size = R1_.rows();
+            u_size = u_.rows();
+            MPI_Bcast(&R0_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(&R1_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(&u_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+            // evaluate basis system on physical domain
+            switch (gf.layer_category(0)[0]) {
+            case ltype::point: {
+                const auto& layer = geo_cast<POINT>(gf[0])->template geometry<0>();
+                // if (layer.locs_at_mesh_nodes()) {
+                //     // locations at mesh nodes
+                //     Psi_.resize(n_dofs_, n_dofs_);
+                //     Psi_.setIdentity();   // \psi_i(p_j) = 1 \iff i == j, otherwise \psi_i(p_j) = 0
+                // } else {
                 Psi_ = internals::point_basis_eval(bilinear_form.trial_space(), layer.coordinates());
+                Psi_size = Psi_.rows();
+                MPI_Bcast(&Psi_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
-            // }
-            D_ = VectorType::Ones(Psi_.rows()).asDiagonal();
-            break;
-        }
-        case ltype::areal: {
-            const auto& layer = geo_cast<POLYGON>(gf[0])->template geometry<0>();
-            const auto& [psi, measure_vect] =
-              internals::areal_basis_eval(bilinear_form.trial_space(), layer.incidence_matrix());
-            Psi_ = psi;
-            D_ = measure_vect.asDiagonal();   // regions' measure
-            break;
-        }
+
+                // }
+                D_ = VectorType::Ones(Psi_.rows()).asDiagonal();
+                D_size = D_.rows();
+                MPI_Bcast(&D_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+                break;
+            }
+            case ltype::areal: {
+                const auto& layer = geo_cast<POLYGON>(gf[0])->template geometry<0>();
+                const auto& [psi, measure_vect] =
+                  internals::areal_basis_eval(bilinear_form.trial_space(), layer.incidence_matrix());
+                Psi_ = psi;
+                Psi_size = Psi_.rows();
+                MPI_Bcast(&Psi_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+
+                D_ = measure_vect.asDiagonal();   // regions' measure
+                D_size = D_.rows();
+                MPI_Bcast(&D_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+                break;
+            }
+            }
+        } else {
+            MPI_Bcast(&n_dofs_, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(&R0_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(&R1_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(&u_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(&Psi_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            MPI_Bcast(&D_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+            R0_.resize(R0_size, R0_size);
+            R1_.resize(R1_size, R1_size);
+            u_.resize(u_size);
+            Psi_.resize(Psi_size, Psi_size);
+            D_.resize(D_size);
         }
     }
     // observers
@@ -103,23 +143,29 @@ struct fe_elliptic_driver_impl : fe_elliptic_driver_base {
         }
         q_ = covs.size();
         // extract data from geoframe
-	n_obs_ = gf[0].data_->rows(); // --------------------- expose from layer_t access to data(), pending for core support
-        y_.resize(n_obs_);
-        gf[0].data_->template col<double>(formula_.lhs()).data().assign_to(y_);
-        if (q_ != 0) {
-            // assemble design matrix
-            X_.resize(n_obs_, q_);
-            for (int i = 0; i < q_; ++i) { gf[0].data_->template col<double>(covs[i]).data().assign_to(X_.col(i)); }
-            XtX_ = X_.transpose() * W * X_;
-            invXtX_ = XtX_.partialPivLu();
-            invXtXXt_ = invXtX_.solve(X_.transpose() * W);   // (X^\top * X)^{-1} * X^\top * W
-            // woodbury decomposition matrices
-            U_ = MatrixType::Zero(2 * n_dofs_, q_);
-            U_.block(0, 0, n_dofs_, q_) = Psi_.transpose() * D_ * W * X_;
-            V_ = MatrixType::Zero(q_, 2 * n_dofs_);
-            V_.block(0, 0, q_, n_dofs_) = X_.transpose() * W * Psi_;
+        if (invR0_.getProcessRank() == 0) {
+            n_obs_ = gf[0].data_->rows();   // --------------------- expose from layer_t access to data(), pending for
+                                            // core support
+            MPI_Bcast(&n_obs_, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        } else {
+            MPI_Bcast(&n_obs_, 1, MPI_INT, 0, MPI_COMM_WORLD);
         }
-	return;
+        y_.resize(n_obs_);
+        if (getProcessRank() == 0) gf[0].data_->template col<double>(formula_.lhs()).data().assign_to(y_);
+        // if (q_ != 0) {
+        //     // assemble design matrix
+        //     X_.resize(n_obs_, q_);
+        //     for (int i = 0; i < q_; ++i) { gf[0].data_->template col<double>(covs[i]).data().assign_to(X_.col(i)); }
+        //     XtX_ = X_.transpose() * W * X_;
+        //     invXtX_ = XtX_.partialPivLu();
+        //     invXtXXt_ = invXtX_.solve(X_.transpose() * W);   // (X^\top * X)^{-1} * X^\top * W
+        //     // woodbury decomposition matrices
+        //     U_ = MatrixType::Zero(2 * n_dofs_, q_);
+        //     U_.block(0, 0, n_dofs_, q_) = Psi_.transpose() * D_ * W * X_;
+        //     V_ = MatrixType::Zero(q_, 2 * n_dofs_);
+        //     V_.block(0, 0, q_, n_dofs_) = X_.transpose() * W * Psi_;
+        // }
+        return;
     }
    public:
     fe_elliptic_driver_impl() noexcept = default;
@@ -130,7 +176,7 @@ struct fe_elliptic_driver_impl : fe_elliptic_driver_base {
         fe_elliptic_driver_base(gf, bilinear_form, linear_form) {
         init_(formula, gf, W);
     }
-  
+
     template <typename BilinearForm, typename LinearForm, typename GeoFrame>
     fe_elliptic_driver_impl(
       const std::string& formula, const GeoFrame& gf, BilinearForm&& bilinear_form, LinearForm&& linear_form) :
@@ -140,8 +186,11 @@ struct fe_elliptic_driver_impl : fe_elliptic_driver_base {
 
     void operator()(double lambda) {
         // assemble system matrix for nonparameteric part
-        SparseBlockMatrix<double, 2, 2> A_(
-          -Psi_.transpose() * D_ * Psi_, lambda * R1_.transpose(), lambda * R1_, lambda * R0_);
+        SparseBlockMatrix<double, 2, 2> A_;
+        if (invA_.getProcessRank() == 0) {
+            A_ = SparseBlockMatrix<double, 2, 2>(
+              -Psi_.transpose() * D_ * Psi_, lambda * R1_.transpose(), lambda * R1_, lambda * R0_);
+        }
         invA_.compute(A_);
         // linear system rhs
         VectorType b_(2 * n_dofs_);
@@ -157,7 +206,7 @@ struct fe_elliptic_driver_impl : fe_elliptic_driver_base {
             x = woodbury_system_solve(invA_, U_, XtX_, V_, b_);
             f_ = x.head(n_dofs_);
             beta_ = invXtXXt_ * (y_ - Psi_ * f_);
-        } 
+        }
         g_ = x.tail(n_dofs_);   // PDE misfit
         return;
     }
@@ -175,18 +224,19 @@ struct fe_elliptic_driver_impl : fe_elliptic_driver_base {
             b_.block(0, 0, n_dofs_, 1) = -Psi_.transpose() * D_ * W * y_;
             x = invA_.solve(b_);
             f_ = x.head(n_dofs_);
-        } else {   // parametric case
-            XtX_ = X_.transpose() * W * X_;
-            invXtX_ = XtX_.partialPivLu();
-            b_.block(0, 0, n_dofs_, 1) = -Psi_.transpose() * D_ * internals::lmbQ(W, X_, invXtX_, y_);
-            // woodbury matrices
-            U_.block(0, 0, n_dofs_, q_) = Psi_.transpose() * D_ * W * X_;
-            V_.block(0, 0, q_, n_dofs_) = X_.transpose() * W * Psi_;
-            // solve A * x = (A_ + U_ * (X^\top*W*X) * V_) * x = b
-            x = woodbury_system_solve(invA_, U_, XtX_, V_, b_);
-            f_ = x.head(n_dofs_);
-            beta_ = invXtX_.solve(X_.transpose() * W) * (y_ - Psi_ * f_);
         }
+        // } else {   // parametric case
+        //     XtX_ = X_.transpose() * W * X_;
+        //     invXtX_ = XtX_.partialPivLu();
+        //     b_.block(0, 0, n_dofs_, 1) = -Psi_.transpose() * D_ * internals::lmbQ(W, X_, invXtX_, y_);
+        //     // woodbury matrices
+        //     U_.block(0, 0, n_dofs_, q_) = Psi_.transpose() * D_ * W * X_;
+        //     V_.block(0, 0, q_, n_dofs_) = X_.transpose() * W * Psi_;
+        //     // solve A * x = (A_ + U_ * (X^\top*W*X) * V_) * x = b
+        //     x = woodbury_system_solve(invA_, U_, XtX_, V_, b_);
+        //     f_ = x.head(n_dofs_);
+        //     beta_ = invXtX_.solve(X_.transpose() * W) * (y_ - Psi_ * f_);
+        // }
         g_ = x.tail(n_dofs_);   // PDE misfit
         return;
     }
@@ -196,7 +246,7 @@ struct fe_elliptic_driver_impl : fe_elliptic_driver_base {
     const VectorType& beta() const { return beta_; }
     const VectorType& g() const { return g_; }
    private:
-    int q_;                       // number of covariates
+    int q_;   // number of covariates
     int n_obs_;
     MatrixType X_;                // n_obs x q design matrix
     VectorType y_;                // n_obs x 1 observation vector
@@ -210,4 +260,4 @@ struct fe_elliptic_driver_impl : fe_elliptic_driver_base {
 }   // namespace internals
 }   // namespace fdapde
 
-#endif // __FE_ELLIPTIC_DRIVER_H__
+#endif   // __FE_ELLIPTIC_DRIVER_H__
